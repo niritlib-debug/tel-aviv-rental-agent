@@ -167,7 +167,8 @@ class Agent:
                  llm_client: Any = None, sources: dict | None = None, notifiers: list | None = None,
                  now: Callable[[], datetime] | None = None,
                  details_fetcher: Callable[[Listing], ListingDetails] | None = None,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 alerter: Callable[[str], None] | None = None):
         self.settings = settings
         self.memory = memory
         self.http = http or PoliteHttp(settings.user_agent)
@@ -181,6 +182,7 @@ class Agent:
             import anthropic
             self.llm_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         self.notifiers = notifiers if notifiers is not None else self._default_notifiers()
+        self.alerter = alerter if alerter is not None else self._default_alerter()
 
     def _default_notifiers(self) -> list:
         notifiers: list = [ConsoleNotifier(), MarkdownReportNotifier(self.settings.report_dir)]
@@ -188,11 +190,37 @@ class Agent:
             notifiers.append(TelegramNotifier(self.settings.telegram_bot_token, self.settings.telegram_chat_id, self.http))
         return notifiers
 
-    def run_once(self, use_llm: bool | None = None, dry_run: bool = False) -> RunReport:
+    def _default_alerter(self) -> Callable[[str], None] | None:
+        if self.settings.telegram_bot_token and self.settings.telegram_chat_id:
+            return TelegramNotifier(self.settings.telegram_bot_token, self.settings.telegram_chat_id,
+                                    self.http).send_text
+        return None
+
+    ALERT_AFTER_FAILURES = 2
+
+    def _alert(self, report: RunReport, failures_before: int) -> None:
+        """Alert on the 2nd failed run in a row, and once more when runs recover (Architecture.md §4.4)."""
+        if report.status == "failed" and failures_before + 1 == self.ALERT_AFTER_FAILURES:
+            reason = report.errors[-1] if report.errors else "unknown error"
+            text = (f"⚠️ Rental agent: the last {self.ALERT_AFTER_FAILURES} runs failed.\n"
+                    f"Latest (run #{report.run_id}): {reason}\nCheck the GitHub Actions log.")
+        elif report.status != "failed" and failures_before >= self.ALERT_AFTER_FAILURES:
+            text = f"✅ Rental agent recovered: run #{report.run_id} succeeded after {failures_before} failed runs."
+        else:
+            return
+        log.error(text) if report.status == "failed" else log.info(text)
+        if self.alerter:
+            try:
+                self.alerter(text)
+            except Exception as exc:
+                log.error("failure alert could not be sent: %s", exc)
+
+    def run_once(self, use_llm: bool | None = None, dry_run: bool = False, slot: str | None = None) -> RunReport:
         use_llm = (self.llm_client is not None) if use_llm is None else (use_llm and self.llm_client is not None)
         started = self.now()
+        failures_before = self.memory.consecutive_failures()
         mode = "llm" if use_llm else "deterministic"
-        run_id = self.memory.start_run(started, mode)
+        run_id = self.memory.start_run(started, mode, slot)
         box = ToolBox(self.settings.goal, self.settings, self.http, self.memory, self.sources,
                       details_fetcher=self.details_fetcher, now=self.now, sleep=self.sleep)
         report = RunReport(run_id=run_id, started_at=started, mode=mode)
@@ -277,4 +305,5 @@ class Agent:
                 run_id, self.now(), report.status, mode=report.mode, n_candidates=len(box.candidates),
                 n_matches=len(report.new) + len(report.changed) + len(report.reappeared) + len(report.unchanged),
                 n_new=len(report.new), n_changed=len(report.changed), errors=report.errors)
+        self._alert(report, failures_before)
         return report

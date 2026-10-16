@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .models import TRACKED_FIELDS, Listing
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -73,9 +73,17 @@ class Memory:
                 for column in ("tenant_fit TEXT", "full_description TEXT", "site_suits_roommates INTEGER",
                                "details_checked_at TEXT"):
                     self.conn.execute(f"ALTER TABLE listings ADD COLUMN {column}")
+            if version < 4:
+                self.conn.execute("ALTER TABLE runs ADD COLUMN slot TEXT")  # e.g. "2026-10-16T08:00"; NULL = manual
+                self.conn.execute("CREATE INDEX IF NOT EXISTS ix_runs_slot ON runs(slot)")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def close(self) -> None:
+        if self.path != ":memory:":
+            try:  # fold the WAL into the main file so rentals.db alone is a complete copy (it gets committed)
+                self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            except sqlite3.Error:
+                pass
         self.conn.close()
 
     def __enter__(self) -> "Memory":
@@ -85,11 +93,35 @@ class Memory:
         self.close()
 
     # ---- runs -------------------------------------------------------------
-    def start_run(self, now: datetime, mode: str) -> int:
+    def start_run(self, now: datetime, mode: str, slot: str | None = None) -> int:
         with self.conn:
-            cur = self.conn.execute("INSERT INTO runs(started_at, status, mode) VALUES (?, 'running', ?)",
-                                    (now.isoformat(), mode))
+            cur = self.conn.execute("INSERT INTO runs(started_at, status, mode, slot) VALUES (?, 'running', ?, ?)",
+                                    (now.isoformat(), mode, slot))
         return int(cur.lastrowid)
+
+    def slot_done(self, slot: str) -> bool:
+        """True if a scheduled slot already has a run that reached the sites (ok or partial)."""
+        row = self.conn.execute("SELECT 1 FROM runs WHERE slot=? AND status IN ('ok', 'partial') LIMIT 1",
+                                (slot,)).fetchone()
+        return row is not None
+
+    def consecutive_failures(self) -> int:
+        """Number of failed runs at the end of the run history (most recent first)."""
+        count = 0
+        for (status,) in self.conn.execute("SELECT status FROM runs WHERE status != 'running' ORDER BY id DESC"):
+            if status != "failed":
+                break
+            count += 1
+        return count
+
+    def last_success(self) -> dict | None:
+        row = self.conn.execute("SELECT * FROM runs WHERE status IN ('ok', 'partial') ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+    def price_history(self, listing_id: str) -> list[dict]:
+        rows = self.conn.execute("SELECT changed_at, old_value, new_value FROM listing_changes "
+                                 "WHERE listing_id=? AND field='price' ORDER BY id", (listing_id,))
+        return [dict(r) for r in rows]
 
     def finish_run(self, run_id: int, now: datetime, status: str, *, mode: str, n_candidates: int,
                    n_matches: int, n_new: int, n_changed: int, errors: list[str]) -> None:

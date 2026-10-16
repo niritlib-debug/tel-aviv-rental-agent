@@ -74,7 +74,8 @@ def test_migrates_v1_database(tmp_path):
     conn.execute("PRAGMA user_version = 1")
     conn.close()
     with Memory(path) as m:
-        assert m.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+        from rental_agent.memory import SCHEMA_VERSION
+        assert m.conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         m.upsert(make_listing("1"), m.start_run(at(2026, 10, 1), "x"), at(2026, 10, 1))
         assert m.get("komo:1")["has_parking"] == 1
 

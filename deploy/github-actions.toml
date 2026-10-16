@@ -1,0 +1,32 @@
+# Settings used by .github/workflows/agent.yml. The goal is the same as config.example.toml;
+# only the storage paths differ: the `data` branch is checked out into ./data.
+
+[goal]
+city = "תל אביב יפו"
+rooms = 3
+max_price = 5200
+require_parking = true
+single_tenant_only = true
+unchecked_policy = "warn"
+details_delay_seconds = 1.5
+
+[schedule]
+timezone = "Asia/Jerusalem"
+times = ["08:00", "20:00"]
+window_hours = 2
+
+[memory]
+db_path = "data/rentals.db"
+stale_after_days = 7
+
+[llm]
+enabled = true      # used only when the ANTHROPIC_API_KEY secret is set
+model = "claude-opus-5-5"
+max_steps = 8
+
+[sources]
+komo = true
+web_search = true   # used only when the TAVILY_API_KEY secret is set
+
+[report]
+dir = "data/reports"

@@ -32,6 +32,7 @@ class Settings:
     goal: SearchGoal = field(default_factory=SearchGoal)
     timezone: str = "Asia/Jerusalem"
     times: tuple[str, ...] = ("08:00", "20:00")
+    window_hours: float = 2.0  # how late a scheduled slot may still start (GitHub cron can be delayed)
     db_path: str = "data/rentals.db"
     stale_after_days: int = 7
     llm_enabled: bool = True
@@ -112,6 +113,7 @@ def load_settings(path: str | os.PathLike | None = None, env: dict | None = None
         goal=goal,
         timezone=s.get("timezone", "Asia/Jerusalem"),
         times=tuple(s.get("times", ("08:00", "20:00"))),
+        window_hours=float(s.get("window_hours", 2.0)),
         db_path=m.get("db_path", "data/rentals.db"),
         stale_after_days=int(m.get("stale_after_days", 7)),
         llm_enabled=bool(llm.get("enabled", True)),
@@ -127,4 +129,6 @@ def load_settings(path: str | os.PathLike | None = None, env: dict | None = None
         telegram_chat_id=env.get("TELEGRAM_CHAT_ID") or None,
     )
     settings.schedule_hours_minutes  # validate early
+    if not 0 < settings.window_hours < 12:
+        raise ConfigError("schedule.window_hours must be between 0 and 12")
     return settings

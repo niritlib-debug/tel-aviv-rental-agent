@@ -90,8 +90,11 @@ class TelegramNotifier:
     def send(self, report: RunReport) -> None:
         if self.only_when_news and not (report.new or report.changed or report.reappeared):
             return
-        text = report.to_short_text()[:4000]  # Telegram limit is 4096 chars
+        self.send_text(report.to_short_text())
+
+    def send_text(self, text: str) -> None:
         resp = self.http.post(self.API.format(token=self.token), check_robots=False,
-                              json={"chat_id": self.chat_id, "text": text, "disable_web_page_preview": True})
+                              json={"chat_id": self.chat_id, "text": text[:4000],  # Telegram limit is 4096
+                                    "disable_web_page_preview": True})
         if resp.status_code != 200:
             raise SourceError(f"Telegram sendMessage failed: HTTP {resp.status_code}")
