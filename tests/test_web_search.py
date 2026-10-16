@@ -2,7 +2,8 @@ import pytest
 
 from rental_agent.goal import SearchGoal
 from rental_agent.tools.http import SourceError
-from rental_agent.tools.web_search import (TAVILY_URL, extract_price, extract_rooms, is_listing_url,
+from rental_agent.tools.web_search import (TAVILY_URL, build_query, extract_parking, extract_price, extract_rooms,
+                                           is_listing_url,
                                            results_to_listings, web_search)
 from tests.conftest import FakeResponse, fake_http
 
@@ -24,7 +25,7 @@ def test_only_listing_urls():
 
 
 RESULTS = [
-    {"url": "https://www.yad2.co.il/realestate/item/abc123", "title": "דירה 3 חדרים להשכרה בתל אביב", "content": "פלורנטין, 4,900 ₪"},
+    {"url": "https://www.yad2.co.il/realestate/item/abc123", "title": "דירה 3 חדרים להשכרה בתל אביב", "content": "פלורנטין, 4,900 ₪, חניה בטאבו"},
     {"url": "https://www.yad2.co.il/realestate/item/nocity", "title": "דירה 3 חדרים", "content": "4,900 ₪"},
     {"url": "https://www.yad2.co.il/realestate/rent?city=5000", "title": "דירות להשכרה בתל אביב 3 חדרים", "content": "₪4,000"},
     {"url": "https://www.madlan.co.il/listings/xyz", "title": "3 חדרים בתל אביב", "content": "no price here"},
@@ -57,3 +58,14 @@ def test_web_search_bad_key():
 def test_web_search_requires_key():
     with pytest.raises(SourceError):
         web_search(SearchGoal(), fake_http({}), "")
+
+
+@pytest.mark.parametrize("text,parking", [("כולל חניה", True), ("חנייה בבניין", True), ("with parking", True),
+                                          ("ללא חניה", False), ("אין חניה", False), ("מרפסת ומעלית", None)])
+def test_extract_parking(text, parking):
+    assert extract_parking(text) is parking
+
+
+def test_query_asks_for_parking():
+    from rental_agent.goal import SearchGoal
+    assert "חניה" in build_query(SearchGoal()) and "חניה" not in build_query(SearchGoal(require_parking=False))

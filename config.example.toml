@@ -6,6 +6,8 @@ rooms = 3                      # exactly 3 rooms
 max_price = 5200               # ₪ per month, inclusive
 allowed_property_types = ["דירה", "דירת גן", "דופלקס", "פנטהאוז", "גג/פנטהאוז", "טריפלקס", "מרתף/פרטר", "יחידת דיור"]
 excluded_keywords = ["שותפ", "חדר בדירה", "חדר להשכרה", "סאבלט"]
+require_parking = true         # only flats with a parking space; set false to allow any
+# Ads without a price are always skipped.
 
 [schedule]
 timezone = "Asia/Jerusalem"

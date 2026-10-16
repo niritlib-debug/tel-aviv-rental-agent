@@ -56,3 +56,24 @@ def test_persists_on_disk(tmp_path):
         m.upsert(make_listing("1"), m.start_run(at(2026, 10, 1), "x"), at(2026, 10, 1))
     with Memory(path) as m:
         assert m.get("komo:1")["price"] == 4800
+
+
+def test_parking_stored(memory):
+    r = memory.start_run(at(2026, 10, 1), "x")
+    memory.upsert(make_listing("1", has_parking=True), r, at(2026, 10, 1))
+    memory.upsert(make_listing("2", has_parking=None), r, at(2026, 10, 1))
+    assert memory.get("komo:1")["has_parking"] == 1 and memory.get("komo:2")["has_parking"] is None
+
+
+def test_migrates_v1_database(tmp_path):
+    import sqlite3
+    from rental_agent.memory import SCHEMA
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA)
+    conn.execute("PRAGMA user_version = 1")
+    conn.close()
+    with Memory(path) as m:
+        assert m.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        m.upsert(make_listing("1"), m.start_run(at(2026, 10, 1), "x"), at(2026, 10, 1))
+        assert m.get("komo:1")["has_parking"] == 1

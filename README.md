@@ -1,6 +1,6 @@
 # tel-aviv-rental-agent
 
-An AI agent that searches **twice a day** for **entire 3-room apartments for rent in Tel Aviv‑Yafo** at **up to ₪5,200/month**, remembers what it has seen in SQLite, tracks changes (for example, price drops), and reports new listings **with direct links**.
+An AI agent that searches **twice a day** for **entire 3-room apartments with parking for rent in Tel Aviv‑Yafo** at **up to ₪5,200/month** (ads that don't state a price are skipped), remembers what it has seen in SQLite, tracks changes (for example, price drops), and reports new listings **with direct links**.
 
 The full design is in [SPEC.md](SPEC.md).
 
@@ -8,7 +8,7 @@ The full design is in [SPEC.md](SPEC.md).
 
 | Agent component | Where it lives | What it does |
 |---|---|---|
-| **Goal** | `rental_agent/goal.py` | Criteria (Tel Aviv only, exactly 3 rooms, ≤ ₪5,200, entire apartment). The code checks every listing against them, and the LLM can't loosen them. |
+| **Goal** | `rental_agent/goal.py` | Criteria (Tel Aviv only, exactly 3 rooms, price stated and ≤ ₪5,200, entire apartment, parking space). The code checks every listing against them, and the LLM can't loosen them. |
 | **Tools** | `rental_agent/tools/` | `search_komo` (Komo listings, verified), `web_search` (Tavily, optional, unverified snippets), `memory_summary`, `submit_matches`, notifiers (console, Markdown, Telegram). |
 | **Memory** | `rental_agent/memory.py` | SQLite: `listings` (dedup by ID and normalized URL), `listing_changes` (field-level history), `runs` (audit log). |
 | **LLM** | `rental_agent/llm.py` | Claude (`claude-opus-5-5` by default) runs a tool-use loop. It picks which tools to call, reviews candidates and submits IDs with notes. It can only submit IDs that a tool returned during the run. |
@@ -50,6 +50,8 @@ pip install -e ".[dev]"
 ```bash
 cp config.example.toml config.toml && cp .env.example .env
 ```
+
+To also see flats **without** parking, set `require_parking = false` under `[goal]` in `config.toml`. Ads without a price are always skipped.
 
 Then edit `.env` (all keys are optional):
 
@@ -113,7 +115,7 @@ Each run prints a report and saves it to `reports/YYYY-MM-DD_HHMM_runN.md`, with
 pytest -q
 ```
 
-The 78 tests run offline (no network, no API keys). They cover goal edge cases, the Komo parser (against a fixture that mirrors the real markup), robots.txt handling, bot-wall and login-redirect detection, retries, Tavily snippet extraction, SQLite deduplication, change and stale tracking, the LLM loop with a fake client (including rejecting made-up IDs and falling back after an error), and scheduling around Israel's daylight saving change. GitHub Actions runs them on Python 3.11 to 3.13.
+The 95 tests run offline (no network, no API keys). They cover goal edge cases, the Komo parser (against a fixture that mirrors the real markup), robots.txt handling, bot-wall and login-redirect detection, retries, Tavily snippet extraction, parking detection, SQLite deduplication, change and stale tracking, the LLM loop with a fake client (including rejecting made-up IDs and falling back after an error), and scheduling around Israel's daylight saving change. GitHub Actions runs them on Python 3.11 to 3.13.
 
 ## Project layout
 

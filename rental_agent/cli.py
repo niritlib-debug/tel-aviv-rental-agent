@@ -62,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "list":
             rows = memory.listings(include_stale=args.all)
             for r in rows:
-                print(f"[{r['status']}] ₪{r['price']:,} · {r['rooms']:g} rooms · {r['title']} · {r['url']}"
+                parking = {1: " · parking", 0: " · no parking"}.get(r["has_parking"], "")
+                print(f"[{r['status']}] ₪{r['price']:,} · {r['rooms']:g} rooms{parking} · {r['title']} · {r['url']}"
                       f"{'' if r['verified'] else ' [unverified]'} (first seen {r['first_seen'][:16]})")
             print(f"{len(rows)} listing(s)")
             return 0

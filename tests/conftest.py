@@ -33,11 +33,12 @@ def settings(tmp_path) -> Settings:
     return Settings(db_path=str(tmp_path / "t.db"), report_dir=str(tmp_path / "reports"))
 
 
-def make_listing(source_id="1", price=4800, rooms=3.0, city="תל אביב יפו", ptype="דירה", **kw) -> Listing:
+def make_listing(source_id="1", price=4800, rooms=3.0, city="תל אביב יפו", ptype="דירה", has_parking=True,
+                 **kw) -> Listing:
     return Listing(source=kw.pop("source", "komo"), source_id=source_id,
                    url=kw.pop("url", f"https://www.komo.co.il/code/nadlan/details/?modaaNum={source_id}"),
                    title=kw.pop("title", f"{city}, שכונה, רחוב {source_id}"), city=city, price=price, rooms=rooms,
-                   property_type=ptype, description=kw.pop("description", f"{ptype} {rooms} חדרים"), **kw)
+                   property_type=ptype, has_parking=has_parking, description=kw.pop("description", f"{ptype} {rooms} חדרים"), **kw)
 
 
 def at(y, mo, d, h=8, mi=0) -> datetime:

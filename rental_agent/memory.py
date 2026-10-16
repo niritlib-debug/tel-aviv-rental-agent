@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .models import TRACKED_FIELDS, Listing
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -62,10 +62,14 @@ class Memory:
 
     def _migrate(self) -> None:
         version = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if version < SCHEMA_VERSION:
-            with self.conn:
+        if version >= SCHEMA_VERSION:
+            return
+        with self.conn:
+            if version < 1:
                 self.conn.executescript(SCHEMA)
-                self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            if version < 2:
+                self.conn.execute("ALTER TABLE listings ADD COLUMN has_parking INTEGER")
+            self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def close(self) -> None:
         self.conn.close()
@@ -115,6 +119,7 @@ class Memory:
             street=listing.street, price=listing.price, rooms=listing.rooms, size_sqm=listing.size_sqm,
             floor=listing.floor, property_type=listing.property_type, description=listing.description,
             verified=int(listing.verified), content_hash=listing.content_hash(),
+            has_parking=None if listing.has_parking is None else int(listing.has_parking),
         )
         with self.conn:
             if existing is None:

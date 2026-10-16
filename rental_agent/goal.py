@@ -21,6 +21,7 @@ class SearchGoal:
     max_price: int = 5200
     allowed_property_types: tuple[str, ...] = ("דירה", "דירת גן", "דופלקס", "פנטהאוז", "גג/פנטהאוז", "טריפלקס", "מרתף/פרטר", "יחידת דיור")
     excluded_keywords: tuple[str, ...] = ("שותפ", "חדר בדירה", "חדר להשכרה", "סאבלט")
+    require_parking: bool = True
 
     def is_in_city(self, listing: Listing) -> bool:
         city = _norm(listing.city)
@@ -43,6 +44,8 @@ class SearchGoal:
             reasons.append("price unknown")
         elif listing.price <= 0 or listing.price > self.max_price:
             reasons.append(f"price {listing.price} outside 1..{self.max_price}")
+        if self.require_parking and listing.has_parking is not True:
+            reasons.append("no parking" if listing.has_parking is False else "parking not confirmed")
         if listing.property_type and listing.property_type not in self.allowed_property_types:
             reasons.append(f"property type {listing.property_type!r} is not an entire apartment")
         text = f"{listing.title} {listing.description} {listing.property_type or ''}"
@@ -58,7 +61,9 @@ class SearchGoal:
     def describe(self) -> str:
         return (
             f"Find entire apartments for rent in {self.city} (Tel Aviv-Yafo only) with exactly "
-            f"{self.rooms:g} rooms and monthly rent of at most ₪{self.max_price:,}. "
+            f"{self.rooms:g} rooms and a stated monthly rent of at most ₪{self.max_price:,} "
+            "(listings without a price are not acceptable). "
+            + ("The apartment must include a parking space. " if self.require_parking else "") +
             f"Allowed property types: {', '.join(self.allowed_property_types)}. "
             "Rooms in shared apartments are not acceptable."
         )

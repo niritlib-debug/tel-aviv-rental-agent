@@ -24,12 +24,14 @@ def test_parse_fixture(komo_html):
 
 
 def test_goal_filters_fixture(komo_html):
-    matches = [l.source_id for l in parse_listings(komo_html) if SearchGoal().matches(l)]
+    matches = [l.source_id for l in parse_listings(komo_html, has_parking=True) if SearchGoal().matches(l)]
     assert matches == ["1000001", "1000002"]  # sublet, no-price, Ramat Gan and 3.5 rooms rejected
 
 
 def test_search_params():
-    assert search_params(SearchGoal()) == {"cityName": "תל אביב יפו", "fromRooms": "3", "toRooms": "3", "toPrice": "5200"}
+    assert search_params(SearchGoal()) == {"cityName": "תל אביב יפו", "fromRooms": "3", "toRooms": "3",
+                                           "toPrice": "5200", "priceOnly": "1", "yesParking": "1"}
+    assert "yesParking" not in search_params(SearchGoal(require_parking=False))
 
 
 def test_search_komo_ok(komo_html):
@@ -38,6 +40,8 @@ def test_search_komo_ok(komo_html):
     assert len(listings) == 6 and warnings == []
     method, url, kwargs = http.session.calls[-1]
     assert kwargs["params"]["toPrice"] == "5200" and kwargs["allow_redirects"] is False
+    assert kwargs["params"]["yesParking"] == "1" and kwargs["params"]["priceOnly"] == "1"
+    assert all(l.has_parking is True for l in listings)  # came from the parking-filtered search
 
 
 def test_login_redirect_is_not_followed():
@@ -79,3 +83,7 @@ def test_retry_recovers(komo_html):
                       SEARCH: [FakeResponse(503), FakeResponse(200, komo_html)]})
     listings, _ = search_komo(SearchGoal(), http)
     assert len(listings) == 6
+
+
+def test_parking_unknown_without_filter(komo_html):
+    assert all(l.has_parking is None for l in parse_listings(komo_html))

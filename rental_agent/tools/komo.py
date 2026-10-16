@@ -34,7 +34,11 @@ class KomoParseWarning(UserWarning):
 
 def search_params(goal: SearchGoal) -> dict:
     rooms = f"{goal.rooms:g}"
-    return {"cityName": goal.city, "fromRooms": rooms, "toRooms": rooms, "toPrice": str(goal.max_price)}
+    params = {"cityName": goal.city, "fromRooms": rooms, "toRooms": rooms, "toPrice": str(goal.max_price),
+              "priceOnly": "1"}  # only ads that state a price
+    if goal.require_parking:
+        params["yesParking"] = "1"  # site-side filter: listings with parking
+    return params
 
 
 def _int(text: str | None) -> int | None:
@@ -44,7 +48,8 @@ def _int(text: str | None) -> int | None:
     return int(m.group(1).replace(",", "")) if m else None
 
 
-def parse_listings(html: str) -> list[Listing]:
+def parse_listings(html: str, has_parking: bool | None = None) -> list[Listing]:
+    """Parse result cards. Cards don't show parking, so it comes from the search filter used."""
     soup = BeautifulSoup(html, "html.parser")
     out: list[Listing] = []
     for card in soup.select("div.modaa__box[key], div.modaaRowAd[key]"):
@@ -74,6 +79,7 @@ def parse_listings(html: str) -> list[Listing]:
             floor=floor_m.group(1).strip() if floor_m else None,
             property_type=type_m.group(1).strip() if type_m else None,
             description=desc,
+            has_parking=has_parking,
             verified=True,
         ))
     return out
@@ -90,7 +96,7 @@ def search_komo(goal: SearchGoal, http: PoliteHttp) -> tuple[list[Listing], list
     html = resp.text
     if looks_like_bot_challenge(html):
         raise SourceError("Komo returned a bot-protection page; not bypassing")
-    listings = parse_listings(html)
+    listings = parse_listings(html, has_parking=True if goal.require_parking else None)
     warnings = []
     if not listings and "נמצאו 0 מודעות" not in html:
         warnings.append("komo: page loaded but 0 listing cards parsed — markup may have changed")

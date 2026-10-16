@@ -56,6 +56,16 @@ def extract_rooms(text: str) -> float | None:
     return None
 
 
+_NO_PARKING_RE = re.compile(r"(?:ללא|אין|בלי)\s+חני|no parking", re.I)
+_PARKING_RE = re.compile(r"חני[יה]|parking", re.I)
+
+
+def extract_parking(text: str) -> bool | None:
+    if _NO_PARKING_RE.search(text):
+        return False
+    return True if _PARKING_RE.search(text) else None
+
+
 def extract_city(text: str) -> str | None:
     low = text.lower()
     for alias in TEL_AVIV_ALIASES:
@@ -69,7 +79,8 @@ def is_listing_url(url: str) -> bool:
 
 
 def build_query(goal: SearchGoal) -> str:
-    return f"דירת {goal.rooms:g} חדרים להשכרה בתל אביב עד {goal.max_price} ש\"ח"
+    parking = " עם חניה" if goal.require_parking else ""
+    return f"דירת {goal.rooms:g} חדרים{parking} להשכרה בתל אביב עד {goal.max_price} ש\"ח"
 
 
 def results_to_listings(results: list[dict]) -> list[Listing]:
@@ -92,6 +103,7 @@ def results_to_listings(results: list[dict]) -> list[Listing]:
             price=price,
             rooms=rooms,
             description=(r.get("content") or "").strip()[:500],
+            has_parking=extract_parking(text),
             verified=False,
         ))
     return out

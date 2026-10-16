@@ -37,6 +37,7 @@ def test_load_settings_from_toml(tmp_path):
     s = load_settings(cfg, env={"ANTHROPIC_API_KEY": "k"})
     assert s.goal.max_price == 5000 and s.goal.rooms == 3 and s.times == ("09:30",)
     assert s.llm_model == "claude-sonnet-5-5" and s.use_llm and not s.use_web_search
+    assert s.goal.require_parking is True
 
 
 def test_defaults_without_file(tmp_path):
@@ -50,3 +51,9 @@ def test_invalid_config(tmp_path, body):
     cfg.write_text(body, encoding="utf-8")
     with pytest.raises(ConfigError):
         load_settings(cfg, env={})
+
+
+def test_parking_can_be_disabled(tmp_path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text("[goal]\nrequire_parking = false\n", encoding="utf-8")
+    assert load_settings(cfg, env={}).goal.require_parking is False

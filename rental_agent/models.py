@@ -34,6 +34,7 @@ class Listing:
     floor: str | None = None
     property_type: str | None = None
     description: str = ""
+    has_parking: bool | None = None  # None = unknown
     verified: bool = True
     extra: dict = field(default_factory=dict)
 
@@ -56,5 +57,6 @@ class Listing:
     def short(self) -> str:
         price = f"₪{self.price:,}" if self.price is not None else "price n/a"
         rooms = f"{self.rooms:g} rooms" if self.rooms is not None else "rooms n/a"
+        parking = {True: " · parking", False: " · no parking"}.get(self.has_parking, "")
         flag = "" if self.verified else " [unverified: from search snippet]"
-        return f"{self.title} · {rooms} · {price} · {self.url}{flag}"
+        return f"{self.title} · {rooms} · {price}{parking} · {self.url}{flag}"

@@ -1,6 +1,6 @@
 # SPEC — Tel Aviv Rental Agent
 
-Status: v0.1 · Written before implementation · Last updated 2026-10-16
+Status: v0.2 · Written before implementation · Last updated 2026-10-16 (v0.2: parking required, price-only ads)
 
 ## 1. Purpose
 
@@ -15,7 +15,8 @@ An autonomous agent that searches, twice a day, for **entire apartments for rent
 | F1 | Search only in the city of Tel Aviv‑Yafo. Listings from any other city are rejected, even if a source returns them. |
 | F2 | Accept only entire apartments (property types דירה, דירת גן, דופלקס, פנטהאוז, גג/פנטהאוז, טריפלקס, מרתף/פרטר, יחידת דיור — configurable). Reject rooms in shared apartments (חדר, שותפים), sublets (סאבלט), and any other property type. |
 | F3 | Accept only listings with exactly 3 rooms (3.0). 2.5 and 3.5 are rejected. |
-| F4 | Accept only listings with a known monthly price ≤ ₪5,200. Listings without a price are rejected. |
+| F4 | Accept only ads that state a monthly price, and only if it is ≤ ₪5,200. Ads without a price are always rejected (Komo is also queried with `priceOnly=1`). |
+| F4a | Accept only apartments with a parking space (`goal.require_parking`, default `true`). Komo is queried with its `yesParking=1` filter (verified 2026‑10‑16: 40 → 7 results; the listing page shows "חניות 1"). Web‑search candidates need a positive parking mention (חניה/חנייה/parking) and are rejected on "ללא/אין/בלי חניה". Unknown parking is rejected. |
 | F5 | Run automatically twice a day at 08:00 and 20:00 in the `Asia/Jerusalem` time zone (configurable). Also runnable on demand. |
 | F6 | Every reported listing includes a link to the original listing page. |
 | F7 | Persist all seen listings in SQLite; never report the same listing as "new" twice. |
@@ -108,6 +109,7 @@ CREATE TABLE listings (
   title         TEXT, city TEXT, neighborhood TEXT, street TEXT,
   price         INTEGER, rooms REAL, size_sqm INTEGER, floor TEXT,
   property_type TEXT, description TEXT,
+  has_parking   INTEGER,               -- 1 / 0 / NULL (unknown); added in schema v2
   verified      INTEGER NOT NULL DEFAULT 1,
   content_hash  TEXT NOT NULL,         -- sha256 of tracked fields
   status        TEXT NOT NULL DEFAULT 'active',   -- active | stale
@@ -136,7 +138,7 @@ CREATE TABLE runs (
 - **Deduplication:** primary key `source:source_id`; secondary unique URL (normalised: lower‑case host, no fragment, tracking params removed). Within one run, duplicates are collapsed before upsert.
 - **Change tracking:** tracked fields = `price, title, description, size_sqm, floor`. A different `content_hash` writes one `listing_changes` row per changed field and marks the listing "changed" for the report. A listing that went `stale` and reappears becomes `active` again (reported as "reappeared").
 - **Staleness:** after a successful run, active listings with `last_seen` older than `stale_after_days` become `stale`.
-- WAL mode, one connection per run, schema versioned with `PRAGMA user_version` for future migrations.
+- WAL mode, one connection per run, schema versioned with `PRAGMA user_version`. v1 → v2 adds `listings.has_parking` with `ALTER TABLE` (existing databases are upgraded in place).
 
 ### 4.4 LLM (`rental_agent/llm.py`)
 - Anthropic Python SDK, default model `claude-opus-5-5` (configurable), `effort: low` (routine orchestration), server‑side refusal fallback (`fallbacks: "default"`).
@@ -172,6 +174,7 @@ rooms = 3
 max_price = 5200
 allowed_property_types = ["דירה", "דירת גן", "דופלקס", "פנטהאוז", "גג/פנטהאוז", "טריפלקס", "מרתף/פרטר", "יחידת דיור"]
 excluded_keywords = ["שותפ", "חדר בדירה", "חדר להשכרה", "סאבלט"]
+require_parking = true
 
 [schedule]
 timezone = "Asia/Jerusalem"
@@ -227,7 +230,7 @@ python -m rental_agent next-runs         # show next scheduled times
 ## 9. Testing
 
 `pytest`, fully offline:
-- `test_goal.py` — criteria boundaries (5,200 ok / 5,201 rejected, 3 vs 3.5 rooms, other city, shared room, missing price).
+- `test_goal.py` — criteria boundaries (5,200 ok / 5,201 rejected, 3 vs 3.5 rooms, other city, shared room, missing price, parking required / optional).
 - `test_komo.py` — parser on an HTML fixture mirroring the verified markup; bot‑challenge and login‑redirect detection; robots handling.
 - `test_web_search.py` — snippet extraction and Tavily request shape (mocked session).
 - `test_memory.py` — new / unchanged / changed / reappeared / stale, dedup by URL, change rows.

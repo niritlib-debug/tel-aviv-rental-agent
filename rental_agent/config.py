@@ -88,6 +88,7 @@ def load_settings(path: str | os.PathLike | None = None, env: dict | None = None
         max_price=int(g.get("max_price", defaults.max_price)),
         allowed_property_types=tuple(g.get("allowed_property_types", defaults.allowed_property_types)),
         excluded_keywords=tuple(g.get("excluded_keywords", defaults.excluded_keywords)),
+        require_parking=bool(g.get("require_parking", defaults.require_parking)),
     )
     if goal.max_price <= 0 or goal.rooms <= 0:
         raise ConfigError("goal.max_price and goal.rooms must be positive")

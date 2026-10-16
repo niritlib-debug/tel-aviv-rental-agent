@@ -41,3 +41,24 @@ def test_shared_apartment_keyword_rejected():
 def test_describe_mentions_criteria():
     text = GOAL.describe()
     assert "5,200" in text and "3 rooms" in text and "Tel Aviv" in text
+
+
+@pytest.mark.parametrize("parking,ok", [(True, True), (False, False), (None, False)])
+def test_parking_required_by_default(parking, ok):
+    assert GOAL.matches(make_listing(has_parking=parking)) is ok
+
+
+def test_parking_optional_when_disabled():
+    goal = SearchGoal(require_parking=False)
+    assert goal.matches(make_listing(has_parking=None)) and goal.matches(make_listing(has_parking=False))
+    assert "parking" not in goal.describe()
+
+
+def test_ads_without_price_always_rejected():
+    for goal in (GOAL, SearchGoal(require_parking=False)):
+        ok, reasons = goal.check(make_listing(price=None))
+        assert not ok and "price unknown" in reasons
+
+
+def test_describe_mentions_parking_and_price():
+    assert "parking" in GOAL.describe() and "without a price" in GOAL.describe()

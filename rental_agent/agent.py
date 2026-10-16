@@ -81,7 +81,7 @@ class ToolBox:
             ok, reasons = self.goal.check(l)
             known = self.memory.get(l.id)
             rows.append({"id": l.id, "title": l.title, "price": l.price, "rooms": l.rooms,
-                         "property_type": l.property_type, "url": l.url, "verified": l.verified,
+                         "property_type": l.property_type, "has_parking": l.has_parking, "url": l.url, "verified": l.verified,
                          "already_known": bool(known), "known_price": known["price"] if known else None,
                          "passes_goal": ok, "reasons": reasons})
         return json.dumps({"count": len(rows), "candidates": rows}, ensure_ascii=False)
