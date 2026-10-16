@@ -81,7 +81,7 @@ Run on schedule (08:00 and 20:00 Israel time; blocks the terminal):
 python -m rental_agent schedule --run-now
 ```
 
-Show the next scheduled times, the saved listings, and the run history:
+Show the next scheduled times, the saved listings, and the run history (the dashboard is built with `python -m rental_agent export-dashboard`):
 
 ```bash
 python -m rental_agent next-runs
@@ -99,6 +99,11 @@ Each run prints a report and saves it to `reports/YYYY-MM-DD_HHMM_runN.md`, with
 
 ### Running it 24/7
 
+**It already runs on GitHub Actions.** The [`rental-agent` workflow](.github/workflows/agent.yml) searches at 08:00 and 20:00 Israel time, saves its memory to the [`data` branch](https://github.com/niritlib-debug/tel-aviv-rental-agent/tree/data), and publishes the dashboard at **https://niritlib-debug.github.io/tel-aviv-rental-agent/**. To start a run now, open **Actions → rental-agent → Run workflow**. To switch on Claude, web search and Telegram messages, add the matching secrets under **Settings → Secrets and variables → Actions** (names in the table above). The full design is in [Architecture.md](Architecture.md).
+
+To run it on your own machine instead:
+
+
 - **Long-running process** (recommended): run `python -m rental_agent schedule` under `tmux`, `systemd`, `launchd` or Docker. APScheduler handles the time zone and daylight saving time.
 - **System cron instead**: on Linux with cronie, `CRON_TZ` pins the time zone.
 
@@ -115,7 +120,7 @@ Each run prints a report and saves it to `reports/YYYY-MM-DD_HHMM_runN.md`, with
 pytest -q
 ```
 
-The 137 tests run offline (no network, no API keys). They cover goal edge cases, the Komo parser (against a fixture that mirrors the real markup), robots.txt handling, bot-wall and login-redirect detection, retries, Tavily snippet extraction, parking detection, single-tenant classification (including real ad wording from Komo), SQLite deduplication, change and stale tracking, the LLM loop with a fake client (including rejecting made-up IDs and falling back after an error), and scheduling around Israel's daylight saving change. GitHub Actions runs them on Python 3.11 to 3.13.
+The 154 tests run offline (no network, no API keys). They cover goal edge cases, the Komo parser (against a fixture that mirrors the real markup), robots.txt handling, bot-wall and login-redirect detection, retries, Tavily snippet extraction, parking detection, single-tenant classification (including real ad wording from Komo), SQLite deduplication, change and stale tracking, the LLM loop with a fake client (including rejecting made-up IDs and falling back after an error), scheduling around Israel's daylight saving change, the GitHub Actions slot guard, failure alerts and the dashboard export. GitHub Actions runs them on Python 3.11 to 3.13.
 
 ## Project layout
 
@@ -125,12 +130,16 @@ rental_agent/
   llm.py         LLM component (Claude tool-use loop)
   memory.py      Memory component (SQLite)
   agent.py       Agent run + ToolBox (inner loop)
-  scheduler.py   Outer loop (Asia/Jerusalem cron)
+  scheduler.py   Outer loop (Asia/Jerusalem cron) + `due` guard for GitHub Actions
+  dashboard.py   Static dashboard export (GitHub Pages)
+  tenant.py      Single-tenant / roommate classifier
   config.py      TOML + env configuration
   models.py      Listing model, URL normalization, content hash
   cli.py         Command line
   tools/         http (polite client), komo, web_search, notify
-tests/           pytest suite + HTML fixture
+tests/           pytest suite + HTML fixtures
+deploy/          settings for the GitHub Actions run
+.github/workflows/  tests.yml (CI) and agent.yml (twice-daily run + dashboard)
 SPEC.md          Requirements and design
 ```
 

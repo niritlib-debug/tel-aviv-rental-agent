@@ -1,8 +1,10 @@
 # Architecture — Tel Aviv Rental Agent in production
 
-Last updated 2026-10-16. This document describes how the agent runs unattended: what triggers it, where its data comes from, where its output goes, and how a person uses the results. Requirements and the inside of a single run are in [SPEC.md](SPEC.md).
+Last updated 2026-10-16. **Status: running.** The workflow is live, and the dashboard is at **https://niritlib-debug.github.io/tel-aviv-rental-agent/**.
 
-**Status legend:** ✅ built and tested · 🛠 planned (designed here, not built yet)
+This document describes how the agent runs unattended: what triggers it, where its data comes from, where its output goes, and how a person uses the results. Requirements and the inside of a single run are in [SPEC.md](SPEC.md).
+
+**Status legend:** ✅ built, tested and running · 🔑 built, needs a secret to switch on
 
 ## 1. Summary
 
@@ -118,7 +120,7 @@ sequenceDiagram
 
 ## 4. Components
 
-### 4.1 Trigger — GitHub Actions schedule 🛠
+### 4.1 Trigger — GitHub Actions schedule ✅
 
 GitHub's `schedule` trigger only understands UTC and can start a few minutes late. Israel switches between UTC+3 (summer) and UTC+2 (winter), so one UTC time can't always mean 08:00 in Israel. The design fires four times a day and lets a guard decide:
 
@@ -131,62 +133,35 @@ GitHub's `schedule` trigger only understands UTC and can start a few minutes lat
 
 (Times checked with Python's `zoneinfo` for 15 July and 15 January 2026.)
 
-**Guard rule** (`python -m rental_agent due`, 🛠): run only if the current Israel time is within 2 hours after a configured slot (08:00 or 20:00) **and** the `runs` table has no successful run for that slot today. The 2-hour window absorbs GitHub's start delays; the `runs` check stops the second trigger from running the same slot twice. A manual run (`workflow_dispatch`) skips the guard.
+**Guard rule** (`python -m rental_agent due`, ✅): run only if the current Israel time is within 2 hours after a configured slot (08:00 or 20:00) **and** the `runs` table has no successful run for that slot today. The 2-hour window absorbs GitHub's start delays; the `runs` check stops the second trigger from running the same slot twice. A manual run (`workflow_dispatch`) skips the guard.
 
-Planned workflow `.github/workflows/agent.yml`:
+The workflow is [`.github/workflows/agent.yml`](.github/workflows/agent.yml). Its steps:
 
-```yaml
-name: rental-agent
-on:
-  schedule:
-    - cron: "0 5,6,17,18 * * *"   # UTC; the guard picks the real 08:00/20:00 Israel slot
-  workflow_dispatch: {}            # "Run workflow" button
-concurrency: { group: rental-agent, cancel-in-progress: false }   # never two runs at once
-permissions: { contents: write, pages: write, id-token: write }
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4          # state lives on the data branch
-        with: { ref: data, path: data }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install .
-      - id: due
-        run: python -m rental_agent due --manual=${{ github.event_name == 'workflow_dispatch' }}
-      - if: steps.due.outputs.run == 'true'
-        run: python -m rental_agent run-once
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      - if: steps.due.outputs.run == 'true'
-        run: |                              # save memory for the next run
-          cd data && git add rentals.db reports && git -c user.name=rental-agent \
-            -c user.email=rental-agent@users.noreply.github.com commit -m "run $(date -u +%FT%TZ)" && git push
-      - if: steps.due.outputs.run == 'true'
-        run: python -m rental_agent export-dashboard --out site
-      # then actions/upload-pages-artifact + actions/deploy-pages
-```
+1. Check out `main` (code) and the `data` branch into `./data` (memory).
+2. `python -m rental_agent due`: the guard. It prints `run=true/false` and the slot id, and passes them to later steps through `GITHUB_OUTPUT`. A manual run is always due.
+3. `python -m rental_agent run-once --slot <id>`: the agent, with API keys from GitHub Secrets. It is marked `continue-on-error`, so a failed run is still saved and shown on the dashboard.
+4. Commit `rentals.db` and `reports/` to the `data` branch and push.
+5. `python -m rental_agent export-dashboard --out site`, then upload it as the Pages artifact.
+6. If the agent run failed, the job fails at the very end, and GitHub emails the repository owner.
+7. A second job, `deploy`, publishes the artifact to GitHub Pages.
+
+Settings for this environment are in [`deploy/github-actions.toml`](deploy/github-actions.toml): the same goal, with the database and reports stored under `./data`. The `concurrency` group guarantees that two runs never overlap.
 
 The agent already supports a long-running scheduler (`python -m rental_agent schedule`, ✅), which uses the Israel time zone directly. That mode is the choice for an always-on machine (§7).
 
 ### 4.2 Agent run ✅
 
-Already built and tested (137 tests). One run does: plan with Claude → search Komo → read listing pages → optional web search → goal check in code → save to SQLite → report → notify. Details: SPEC.md §4–§5.
+Built and tested (154 tests). One run does: plan with Claude → search Komo → read listing pages → optional web search → goal check in code → save to SQLite → report → notify. Details: SPEC.md §4–§5.
 
 Claude is optional. Without `ANTHROPIC_API_KEY`, or if the API fails, the same run continues in deterministic mode, so a Claude outage never means a missed search.
 
-### 4.3 Database — SQLite ✅ (storage on the `data` branch 🛠)
+### 4.3 Database — SQLite on the `data` branch ✅
 
 | Table | One row per | Used for |
 |---|---|---|
 | `listings` | flat ever matched | dedup, `first_seen` / `last_seen`, stale flag, tenant classification, ad text, parking |
 | `listing_changes` | field change | price history, tenant-classification changes |
-| `runs` | run | audit log, guard ("has this slot run?"), dashboard health panel |
+| `runs` | run | audit log; `slot` column for the guard ("has this slot run?"); failure alert; dashboard health panel |
 
 A GitHub Actions runner starts empty every time, so the database must be saved somewhere between runs. Options considered:
 
@@ -197,21 +172,21 @@ A GitHub Actions runner starts empty every time, so the database must be saved s
 | **Orphan `data` branch in this repo** | permanent; every run is a commit, so any old state can be restored | ✔ chosen |
 | Hosted database (e.g. Postgres) | permanent | over-sized for ~100 rows a month |
 
-The `data` branch holds only `rentals.db` and `reports/`. Keeping it apart from `main` keeps the code history clean. The database stays small (a few hundred KB per year).
+The [`data` branch](https://github.com/niritlib-debug/tel-aviv-rental-agent/tree/data) holds only `rentals.db` and `reports/`. Before the database is committed, SQLite's write-ahead log is folded into the main file, so `rentals.db` alone is a complete copy. Keeping it apart from `main` keeps the code history clean. The database stays small (a few hundred KB per year).
 
 ### 4.4 Outputs
 
 | Output | Content | When | Status |
 |---|---|---|---|
 | **Console log** | full report | every run (visible in the Actions log) | ✅ |
-| **Markdown report** `reports/<date>_<time>_run<N>.md` | New / Changed / Back / Still available, with links and notes | every run, committed to `data` | ✅ file · 🛠 commit |
-| **Telegram message** | only new, changed (e.g. price drop) and reappeared flats, each with its link | only when there is something new, so no messages on quiet runs | ✅ (needs bot token) |
-| **Dashboard** (GitHub Pages) | see §4.5 | rebuilt after every run | 🛠 |
-| **Failure alert** | "run failed: <reason>" via Telegram; GitHub also emails the repo owner when a workflow fails | when `runs.status = failed` twice in a row | 🛠 |
+| **Markdown report** `reports/<date>_<time>_run<N>.md` | New / Changed / Back / Still available, with links and notes | every run, committed to `data` | ✅ |
+| **Telegram message** | only new, changed (e.g. price drop) and reappeared flats, each with its link | only when there is something new, so no messages on quiet runs | 🔑 `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
+| **Dashboard** (GitHub Pages) | see §4.5 | rebuilt after every run | ✅ |
+| **Failure alert** | Telegram: "the last 2 runs failed" with the reason, then "recovered" when a run succeeds again (no repeats while it keeps failing). GitHub also emails the repo owner whenever the job fails. | 2nd failed run in a row | ✅ email · 🔑 Telegram |
 
-### 4.5 Dashboard 🛠
+### 4.5 Dashboard ✅
 
-A static page published with GitHub Pages: no server, no login, nothing to keep running. After each run, `python -m rental_agent export-dashboard` writes:
+**https://niritlib-debug.github.io/tel-aviv-rental-agent/** — a static page published with GitHub Pages: no server, no login, nothing to keep running. After each run, `python -m rental_agent export-dashboard` writes:
 
 - `site/listings.json`: active matches, with price history from `listing_changes`
 - `site/runs.json`: the last 30 runs
@@ -221,10 +196,10 @@ What the page shows:
 
 | Panel | Content |
 |---|---|
-| Header | "Last successful run: 16 Oct 20:00". Turns red if older than 13 hours, meaning a run was missed. |
+| Header | "Last successful run: 16 Oct 21:57". Turns red if older than 13 hours, meaning a run was missed. |
 | Matches table | address, neighborhood, price, size, floor, tags (parking, suits a single tenant, unverified), first seen, link. Sortable by price or date, filter by neighborhood. |
-| New since last visit | rows first seen after the browser's last visit (remembered locally in the browser). |
-| Price history | small line per flat when its price changed. |
+| New since last visit | a counter and a filter button for flats first seen after the browser's last visit (remembered locally in the browser). |
+| Price history | one line per flat whose price changed, with drops in green and rises in red. |
 | Run health | last 30 runs: status, mode (Claude / deterministic), matches, new, errors. |
 
 ## 5. What the user does with the output
@@ -269,10 +244,13 @@ The agent never contacts landlords and never fills in forms. A person makes ever
 
 Moving between platforms changes only the trigger and where `rentals.db` is stored. The agent code is the same.
 
-## 8. Build plan for the 🛠 parts
+## 8. Build status
 
-1. `python -m rental_agent due`: guard command + slot tracking in `runs` (with tests for both seasons and late starts).
-2. `.github/workflows/agent.yml` + create the orphan `data` branch.
-3. `python -m rental_agent export-dashboard` + static `index.html`; enable GitHub Pages (source: GitHub Actions).
-4. Failure alert (two failed runs in a row → Telegram).
-5. Add the four repository secrets and run once manually from the Actions tab.
+| Step | Status |
+|---|---|
+| `python -m rental_agent due` guard + `runs.slot` (schema v4), tested for summer, winter, late starts, retries after a failed slot and windows that cross midnight | ✅ |
+| `.github/workflows/agent.yml` + orphan `data` branch | ✅ |
+| `python -m rental_agent export-dashboard` + GitHub Pages (source: GitHub Actions) | ✅ |
+| Failure alert (2nd failed run in a row → Telegram; recovery message) | ✅ |
+| Verified on GitHub (16 Oct 2026): run 1 found 4 flats and committed `reports/…_run1.md`; run 2 reported 0 new / 4 still available, so memory carried over between runners; the dashboard serves the 4 flats | ✅ |
+| Add repository secrets (**Settings → Secrets and variables → Actions**): `ANTHROPIC_API_KEY` (Claude mode), `TAVILY_API_KEY` (web search), `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (messages and alerts). Without them the workflow already runs in deterministic mode with Komo only. | 🔑 owner |
