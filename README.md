@@ -2,7 +2,7 @@
 
 An AI agent that searches **twice a day** for **entire 3-room apartments with parking for rent in Tel Aviv‑Yafo** at **up to ₪5,200/month**, that **a single tenant can rent on their own** (no roommate ads, no short-term or per-night rentals, no ads without a price), remembers what it has seen in SQLite, tracks changes (for example, price drops), and reports new listings **with direct links**.
 
-The full design is in [SPEC.md](SPEC.md).
+The full design is in [SPEC.md](SPEC.md). How it runs in production (trigger, data flow, database, dashboard, notifications) is in [Architecture.md](Architecture.md).
 
 ## How it works
 
