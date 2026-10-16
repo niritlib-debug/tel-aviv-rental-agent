@@ -1,0 +1,28 @@
+# Copy to config.toml and adjust. Secrets go in .env, never here.
+
+[goal]
+city = "תל אביב יפו"          # Tel Aviv-Yafo only
+rooms = 3                      # exactly 3 rooms
+max_price = 5200               # ₪ per month, inclusive
+allowed_property_types = ["דירה", "דירת גן", "דופלקס", "פנטהאוז", "גג/פנטהאוז", "טריפלקס", "מרתף/פרטר", "יחידת דיור"]
+excluded_keywords = ["שותפ", "חדר בדירה", "חדר להשכרה", "סאבלט"]
+
+[schedule]
+timezone = "Asia/Jerusalem"
+times = ["08:00", "20:00"]     # twice daily, local time
+
+[memory]
+db_path = "data/rentals.db"
+stale_after_days = 7
+
+[llm]
+enabled = true                 # also requires ANTHROPIC_API_KEY
+model = "claude-opus-5-5"
+max_steps = 8
+
+[sources]
+komo = true
+web_search = true              # also requires TAVILY_API_KEY
+
+[report]
+dir = "reports"

@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tel-aviv-rental-agent"
+version = "0.1.0"
+description = "AI agent that searches twice daily for 3-room rentals in Tel Aviv up to ₪5,200"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "anthropic>=1.0,<2",
+  "requests>=2.31",
+  "beautifulsoup4>=4.12",
+  "apscheduler>=3.10,<4",
+  "tzdata>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+rental-agent = "rental_agent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rental_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
