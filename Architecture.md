@@ -21,6 +21,11 @@ This document describes how the agent runs unattended: what triggers it, where i
 
 Where data originates (left), how the agent processes it (middle), and where it is sent (right).
 
+![Data-flow flowchart: triggers, data sources, agent run, storage, outputs and the user](docs/architecture-dataflow.png)
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
 ```mermaid
 flowchart LR
     subgraph TRIGGER["1 · Trigger"]
@@ -80,7 +85,14 @@ flowchart LR
     USER -- "taps link" --> LANDLORD
 ```
 
+</details>
+
 ## 3. One scheduled run, step by step
+
+![Sequence of one scheduled run](docs/architecture-run-sequence.png)
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
 
 ```mermaid
 sequenceDiagram
@@ -117,6 +129,8 @@ sequenceDiagram
         R->>P: deploy site (index.html + listings.json)
     end
 ```
+
+</details>
 
 ## 4. Components
 
@@ -204,6 +218,11 @@ What the page shows:
 
 ## 5. What the user does with the output
 
+![What the user does with the output](docs/architecture-user-flow.png)
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
 ```mermaid
 flowchart TD
     MSG["Telegram: 2 new flats"] --> OPEN["Tap link → read the ad on Komo"]
@@ -216,6 +235,8 @@ flowchart TD
     DONE -- "yes" --> STOP["Disable the workflow<br/>Actions → Disable"]
     DONE -- "no" --> MSG
 ```
+
+</details>
 
 The agent never contacts landlords and never fills in forms. A person makes every decision about an ad.
 
