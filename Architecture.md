@@ -19,7 +19,56 @@ This document describes how the agent runs unattended: what triggers it, where i
 
 ## 2. System data flow
 
-Where data originates (left), how the agent processes it (middle), and where it is sent (right).
+### At a glance
+
+Read it from top to bottom: what starts the agent and where the data comes from (1–2), what the agent does with it (3–4), where the results are sent (5), and what you do with them (6).
+
+![Simple data-flow flowchart: trigger and data sources, agent, database, outputs, user](docs/architecture-simple.png)
+
+<details>
+<summary>Diagram source (Mermaid)</summary>
+
+```mermaid
+flowchart TD
+    T["1 · TRIGGER<br/>Every day at 08:00 and 20:00<br/>GitHub Actions starts the agent"]
+    S1["2 · DATA SOURCE<br/>Komo website<br/>flats for rent in Tel Aviv"]
+    S2["2 · DATA SOURCE<br/>Web search: Yad2, Madlan<br/>optional"]
+    A["3 · AGENT + CLAUDE<br/>keeps only the flats that match:<br/>Tel Aviv · 3 rooms · up to 5,200 NIS<br/>parking · single tenant"]
+    D[("4 · DATABASE<br/>remembers every flat,<br/>spots new flats and price changes")]
+    O1["5 · TELEGRAM<br/>message to your phone<br/>about new flats"]
+    O2["5 · DASHBOARD<br/>website with<br/>all matching flats"]
+    O3["5 · REPORT<br/>file saved in GitHub<br/>after every run"]
+    U(["6 · YOU<br/>open the ad and<br/>contact the landlord"])
+
+    T -->|starts| A
+    S1 -->|flat ads| A
+    S2 -->|flat ads| A
+    A -->|matching flats| D
+    D -->|new flats| O1
+    D -->|all flats| O2
+    D -->|run summary| O3
+    O1 --> U
+    O2 --> U
+
+    classDef trigger fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#000
+    classDef source fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#000
+    classDef agent fill:#FFFDE7,stroke:#F9A825,stroke-width:2px,color:#000
+    classDef store fill:#EDE7F6,stroke:#4527A0,stroke-width:2px,color:#000
+    classDef output fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#000
+    classDef user fill:#FCE4EC,stroke:#AD1457,stroke-width:2px,color:#000
+    class T trigger
+    class S1,S2 source
+    class A agent
+    class D store
+    class O1,O2,O3 output
+    class U user
+```
+
+</details>
+
+### Detailed view
+
+The same flow with every component: where data originates (left), how the agent processes it (middle), and where it is sent (right).
 
 ![Data-flow flowchart: triggers, data sources, agent run, storage, outputs and the user](docs/architecture-dataflow.png)
 
