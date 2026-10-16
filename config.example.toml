@@ -5,9 +5,20 @@ city = "תל אביב יפו"          # Tel Aviv-Yafo only
 rooms = 3                      # exactly 3 rooms
 max_price = 5200               # ₪ per month, inclusive
 allowed_property_types = ["דירה", "דירת גן", "דופלקס", "פנטהאוז", "גג/פנטהאוז", "טריפלקס", "מרתף/פרטר", "יחידת דיור"]
-excluded_keywords = ["שותפ", "חדר בדירה", "חדר להשכרה", "סאבלט"]
+excluded_keywords = ["סאבלט"]         # roommate wording is handled by [goal.tenant]
 require_parking = true         # only flats with a parking space; set false to allow any
 # Ads without a price are always skipped.
+single_tenant_only = true      # skip roommate ads ("דרוש שותף", rooms in shared flats, roommates-only)
+unchecked_policy = "warn"      # if a listing page can't be read: warn = report with a warning, skip = hold back
+details_delay_seconds = 1.5    # pause between listing-page requests
+
+# Phrases used to classify ads (SPEC §4.6). Leave commented out to use the built-in lists.
+# [goal.tenant]
+# short_term = ["ללילה", "לטווח קצר", "per night", "short term", "airbnb"]
+# negated_roommates = ["לא לשותפים", "ללא שותפים", "לא מתאים לשותפים", "no roommates"]
+# roommates_wanted = ["דרוש שותף", "מחפשת שותפה", "חדר בדירת שותפים", "חדר להשכרה", "roommate wanted"]
+# roommates_only = ["לשותפים בלבד", "רק לשותפים", "מיועדת לשותפים"]
+# single_ok = ["ליחיד", "ליחידה", "לרווק", "לרווקה", "single tenant"]
 
 [schedule]
 timezone = "Asia/Jerusalem"

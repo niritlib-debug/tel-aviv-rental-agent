@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .models import Listing
+from .tenant import REJECTED_FOR_SINGLE_TENANT, SHORT_TERM, TenantRules, classify_tenant
 
 # Spellings under which Tel Aviv appears in listings. Matching is on normalized text.
 TEL_AVIV_ALIASES = ("תל אביב יפו", "תל אביב-יפו", "תל אביב", "tel aviv", "tel-aviv", "יפו", "jaffa")
@@ -20,8 +21,11 @@ class SearchGoal:
     rooms: float = 3
     max_price: int = 5200
     allowed_property_types: tuple[str, ...] = ("דירה", "דירת גן", "דופלקס", "פנטהאוז", "גג/פנטהאוז", "טריפלקס", "מרתף/פרטר", "יחידת דיור")
-    excluded_keywords: tuple[str, ...] = ("שותפ", "חדר בדירה", "חדר להשכרה", "סאבלט")
+    excluded_keywords: tuple[str, ...] = ("סאבלט",)  # roommate wording lives in tenant_rules
     require_parking: bool = True
+    single_tenant_only: bool = True
+    unchecked_policy: str = "warn"  # warn | skip — Komo listings whose page could not be checked
+    tenant_rules: TenantRules = field(default_factory=TenantRules)
 
     def is_in_city(self, listing: Listing) -> bool:
         city = _norm(listing.city)
@@ -31,8 +35,18 @@ class SearchGoal:
         title = _norm(listing.title)
         return any(_norm(a) in title for a in TEL_AVIV_ALIASES)
 
-    def check(self, listing: Listing) -> tuple[bool, list[str]]:
-        """Return (matches, reasons-for-rejection). Never relaxed by the LLM."""
+    def tenant_fit(self, listing: Listing) -> str:
+        """Use the classification made from the listing page, or classify the text we have."""
+        if listing.tenant_fit:
+            return listing.tenant_fit
+        text = f"{listing.title} {listing.description} {listing.full_description}"
+        return classify_tenant(text, self.tenant_rules)[0]
+
+    def check(self, listing: Listing, card_only: bool = False) -> tuple[bool, list[str]]:
+        """Return (matches, reasons-for-rejection). Never relaxed by the LLM.
+
+        ``card_only`` skips the tenant rules, which need the full listing page (SPEC F2d).
+        """
         reasons: list[str] = []
         if not self.is_in_city(listing):
             reasons.append(f"city is not Tel Aviv-Yafo ({listing.city or listing.title!r})")
@@ -53,6 +67,15 @@ class SearchGoal:
             if kw in text:
                 reasons.append(f"excluded keyword {kw!r} (not an entire apartment)")
                 break
+        if not card_only:
+            fit = self.tenant_fit(listing)
+            if fit == SHORT_TERM:
+                reasons.append("short-term / per-night rental, not a monthly rent")
+            elif self.single_tenant_only and fit in REJECTED_FOR_SINGLE_TENANT:
+                reasons.append(f"not for a single tenant ({fit})")
+            if (self.single_tenant_only and self.unchecked_policy == "skip"
+                    and listing.source == "komo" and not listing.details_checked_at):
+                reasons.append("listing page not checked for roommates yet")
         return (not reasons, reasons)
 
     def matches(self, listing: Listing) -> bool:
@@ -65,5 +88,7 @@ class SearchGoal:
             "(listings without a price are not acceptable). "
             + ("The apartment must include a parking space. " if self.require_parking else "") +
             f"Allowed property types: {', '.join(self.allowed_property_types)}. "
-            "Rooms in shared apartments are not acceptable."
+            + ("It must be rentable by a single tenant on their own: no roommate-wanted ads, no rooms in "
+               "shared flats, no roommates-only flats. " if self.single_tenant_only else "")
+            + "Long-term monthly rentals only (no short-term or per-night ads)."
         )

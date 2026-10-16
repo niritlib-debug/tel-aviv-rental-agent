@@ -26,9 +26,13 @@ How to work:
    If a tool fails you may retry it once.
 3. Review the candidates. Each one includes `passes_goal` and `reasons`, computed
    by code from the goal. Only candidates with passes_goal=true can be accepted.
+   `tenant_fit` says whether a single tenant can rent the flat (single_ok / unknown are
+   acceptable); `ad_text_excerpt` is the ad's own text, so mention in your note anything
+   in it that a single tenant should know.
 4. Call submit_matches exactly once with every candidate ID that satisfies the goal,
    with a short note for each (in English): e.g. "new", "price dropped from 5,000",
-   "unverified: from a search snippet, check price on the site".
+   "unverified: from a search snippet, check price on the site", "ad says it suits a single tenant",
+   "listing page could not be checked for roommate wording".
 
 Rules:
 - Only submit IDs that appear in tool results from this run. Never invent listings,

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
@@ -14,7 +15,8 @@ from .llm import LLMError, LLMPlanner
 from .memory import CHANGED, NEW, REAPPEARED, Memory
 from .models import Listing
 from .tools.http import PoliteHttp, SourceError
-from .tools.komo import search_komo
+from .tenant import classify_tenant
+from .tools.komo import ListingDetails, fetch_komo_details, search_komo
 from .tools.notify import ConsoleNotifier, MarkdownReportNotifier, RunReport, TelegramNotifier
 from .tools.web_search import web_search
 
@@ -24,8 +26,12 @@ log = logging.getLogger(__name__)
 class ToolBox:
     """Executes tools for one run and keeps the run's candidate buffer."""
 
+    DETAILS_MAX_AGE = timedelta(hours=24)
+
     def __init__(self, goal: SearchGoal, settings: Settings, http: PoliteHttp, memory: Memory,
-                 sources: dict[str, Callable[[], list[Listing]]] | None = None):
+                 sources: dict[str, Callable[[], list[Listing]]] | None = None,
+                 details_fetcher: Callable[[Listing], ListingDetails] | None = None,
+                 now: Callable[[], datetime] | None = None, sleep: Callable[[float], None] = time.sleep):
         self.goal = goal
         self.settings = settings
         self.http = http
@@ -35,6 +41,10 @@ class ToolBox:
         self.sources_ok: set[str] = set()
         self.sources_failed: set[str] = set()
         self.sources = sources if sources is not None else self._default_sources()
+        self.details_fetcher = details_fetcher or (lambda listing: fetch_komo_details(listing, self.http))
+        self.now = now or datetime.now
+        self.sleep = sleep
+        self.details_fetched = 0
 
     def _default_sources(self) -> dict[str, Callable[[], list[Listing]]]:
         sources: dict[str, Callable[[], list[Listing]]] = {}
@@ -66,8 +76,51 @@ class ToolBox:
         self.sources_ok.add(name)
         self.sources_failed.discard(name)
         for listing in listings:
+            self.enrich(listing)
+        for listing in listings:
             self.candidates.setdefault(listing.id, listing)
         return listings
+
+    def enrich(self, listing: Listing) -> None:
+        """Add listing-page details (Komo, when needed) and the tenant classification (SPEC §4.2, §4.6)."""
+        if listing.source == "komo" and self.goal.check(listing, card_only=True)[0]:
+            stored = self.memory.get(listing.id)
+            if self._fresh(stored, listing):
+                self._apply_stored(listing, stored)
+            else:
+                if self.details_fetched:
+                    self.sleep(self.settings.details_delay_seconds)  # be polite between page fetches
+                self.details_fetched += 1
+                try:
+                    details = self.details_fetcher(listing)
+                except Exception as exc:  # SourceError or a parser problem: classify from what we have
+                    self.errors.append(f"listing page {listing.id}: {exc}")
+                    if stored and stored.get("details_checked_at"):
+                        self._apply_stored(listing, stored)
+                else:
+                    listing.full_description = details.full_text
+                    listing.site_suits_roommates = "shutafim" in details.amenities
+                    listing.details_checked_at = self.now().isoformat()
+                    if details.parking_spaces is not None:
+                        listing.has_parking = details.parking_spaces > 0
+        text = f"{listing.title} {listing.description} {listing.full_description}"
+        listing.tenant_fit, listing.tenant_evidence = classify_tenant(text, self.goal.tenant_rules)
+
+    def _fresh(self, stored: dict | None, listing: Listing) -> bool:
+        if not stored or not stored.get("details_checked_at") or stored["content_hash"] != listing.content_hash():
+            return False
+        try:
+            checked = datetime.fromisoformat(stored["details_checked_at"])
+            return self.now() - checked < self.DETAILS_MAX_AGE
+        except (TypeError, ValueError):
+            return False
+
+    @staticmethod
+    def _apply_stored(listing: Listing, stored: dict) -> None:
+        listing.full_description = stored.get("full_description") or ""
+        if stored.get("site_suits_roommates") is not None:
+            listing.site_suits_roommates = bool(stored["site_suits_roommates"])
+        listing.details_checked_at = stored.get("details_checked_at")
 
     def execute(self, name: str, tool_input: dict) -> str:
         """Tool entry point for the LLM. Returns JSON text."""
@@ -81,7 +134,10 @@ class ToolBox:
             ok, reasons = self.goal.check(l)
             known = self.memory.get(l.id)
             rows.append({"id": l.id, "title": l.title, "price": l.price, "rooms": l.rooms,
-                         "property_type": l.property_type, "has_parking": l.has_parking, "url": l.url, "verified": l.verified,
+                         "property_type": l.property_type, "has_parking": l.has_parking, "url": l.url,
+                         "tenant_fit": l.tenant_fit, "tenant_evidence": l.tenant_evidence,
+                         "ad_text_excerpt": (l.full_description or l.description)[:300],
+                         "listing_page_checked": bool(l.details_checked_at), "verified": l.verified,
                          "already_known": bool(known), "known_price": known["price"] if known else None,
                          "passes_goal": ok, "reasons": reasons})
         return json.dumps({"count": len(rows), "candidates": rows}, ensure_ascii=False)
@@ -109,13 +165,17 @@ def _dedupe_by_url(listings: list[Listing]) -> list[Listing]:
 class Agent:
     def __init__(self, settings: Settings, memory: Memory, http: PoliteHttp | None = None,
                  llm_client: Any = None, sources: dict | None = None, notifiers: list | None = None,
-                 now: Callable[[], datetime] | None = None):
+                 now: Callable[[], datetime] | None = None,
+                 details_fetcher: Callable[[Listing], ListingDetails] | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self.settings = settings
         self.memory = memory
         self.http = http or PoliteHttp(settings.user_agent)
         self.tz = ZoneInfo(settings.timezone)
         self.now = now or (lambda: datetime.now(self.tz))
         self.sources = sources
+        self.details_fetcher = details_fetcher
+        self.sleep = sleep
         self.llm_client = llm_client
         if self.llm_client is None and settings.use_llm:
             import anthropic
@@ -133,7 +193,8 @@ class Agent:
         started = self.now()
         mode = "llm" if use_llm else "deterministic"
         run_id = self.memory.start_run(started, mode)
-        box = ToolBox(self.settings.goal, self.settings, self.http, self.memory, self.sources)
+        box = ToolBox(self.settings.goal, self.settings, self.http, self.memory, self.sources,
+                      details_fetcher=self.details_fetcher, now=self.now, sleep=self.sleep)
         report = RunReport(run_id=run_id, started_at=started, mode=mode)
         notes: dict[str, str] = {}
         selected_ids: set[str] | None = None

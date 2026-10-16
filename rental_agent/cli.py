@@ -63,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
             rows = memory.listings(include_stale=args.all)
             for r in rows:
                 parking = {1: " · parking", 0: " · no parking"}.get(r["has_parking"], "")
+                if r.get("tenant_fit") == "single_ok":
+                    parking += " · suits a single tenant"
+                elif r["source"] == "komo" and not r.get("details_checked_at"):
+                    parking += " · ⚠ not checked for roommates"
                 print(f"[{r['status']}] ₪{r['price']:,} · {r['rooms']:g} rooms{parking} · {r['title']} · {r['url']}"
                       f"{'' if r['verified'] else ' [unverified]'} (first seen {r['first_seen'][:16]})")
             print(f"{len(rows)} listing(s)")

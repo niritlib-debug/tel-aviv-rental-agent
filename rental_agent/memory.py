@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .models import TRACKED_FIELDS, Listing
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS listings (
@@ -69,6 +69,10 @@ class Memory:
                 self.conn.executescript(SCHEMA)
             if version < 2:
                 self.conn.execute("ALTER TABLE listings ADD COLUMN has_parking INTEGER")
+            if version < 3:
+                for column in ("tenant_fit TEXT", "full_description TEXT", "site_suits_roommates INTEGER",
+                               "details_checked_at TEXT"):
+                    self.conn.execute(f"ALTER TABLE listings ADD COLUMN {column}")
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def close(self) -> None:
@@ -120,6 +124,9 @@ class Memory:
             floor=listing.floor, property_type=listing.property_type, description=listing.description,
             verified=int(listing.verified), content_hash=listing.content_hash(),
             has_parking=None if listing.has_parking is None else int(listing.has_parking),
+            tenant_fit=listing.tenant_fit, full_description=listing.full_description or None,
+            site_suits_roommates=None if listing.site_suits_roommates is None else int(listing.site_suits_roommates),
+            details_checked_at=listing.details_checked_at,
         )
         with self.conn:
             if existing is None:
@@ -139,6 +146,11 @@ class Memory:
                 self.conn.executemany(
                     "INSERT INTO listing_changes(listing_id, run_id, field, old_value, new_value, changed_at) "
                     "VALUES (?, ?, ?, ?, ?, ?)", [(existing["id"], run_id, f, o, n, ts) for f, o, n in diffs])
+            if listing.tenant_fit and existing["tenant_fit"] and existing["tenant_fit"] != listing.tenant_fit:
+                self.conn.execute(  # recorded, but not reported as "changed" (SPEC §4.3)
+                    "INSERT INTO listing_changes(listing_id, run_id, field, old_value, new_value, changed_at) "
+                    "VALUES (?, ?, 'tenant_fit', ?, ?, ?)", (existing["id"], run_id, existing["tenant_fit"],
+                                                            listing.tenant_fit, ts))
             was_stale = existing["status"] == "stale"
             self.conn.execute(
                 "UPDATE listings SET " + ", ".join(f"{k}=?" for k in values) +

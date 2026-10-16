@@ -35,6 +35,12 @@ class Listing:
     property_type: str | None = None
     description: str = ""
     has_parking: bool | None = None  # None = unknown
+    # Filled from the listing page / tenant classifier (SPEC §4.6)
+    tenant_fit: str | None = None
+    tenant_evidence: str = ""
+    full_description: str = ""
+    site_suits_roommates: bool | None = None
+    details_checked_at: str | None = None  # ISO time of the last successful listing-page fetch
     verified: bool = True
     extra: dict = field(default_factory=dict)
 
@@ -58,5 +64,8 @@ class Listing:
         price = f"₪{self.price:,}" if self.price is not None else "price n/a"
         rooms = f"{self.rooms:g} rooms" if self.rooms is not None else "rooms n/a"
         parking = {True: " · parking", False: " · no parking"}.get(self.has_parking, "")
+        tenant = " · suits a single tenant" if self.tenant_fit == "single_ok" else ""
+        if self.source == "komo" and not self.details_checked_at:
+            tenant += " · ⚠ not checked for roommates"
         flag = "" if self.verified else " [unverified: from search snippet]"
-        return f"{self.title} · {rooms} · {price}{parking} · {self.url}{flag}"
+        return f"{self.title} · {rooms} · {price}{parking}{tenant} · {self.url}{flag}"

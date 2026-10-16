@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .goal import SearchGoal
+from .tenant import TenantRules
 
 
 class ConfigError(ValueError):
@@ -39,6 +40,7 @@ class Settings:
     komo_enabled: bool = True
     web_search_enabled: bool = True
     report_dir: str = "reports"
+    details_delay_seconds: float = 1.5
     user_agent: str = "tel-aviv-rental-agent/0.1 (+https://github.com/niritlib-debug/tel-aviv-rental-agent)"
 
     anthropic_api_key: str | None = None
@@ -68,6 +70,13 @@ class Settings:
         return out
 
 
+def _tenant_rules(data) -> TenantRules:
+    try:
+        return TenantRules.from_config(data)
+    except (ValueError, TypeError) as exc:
+        raise ConfigError(str(exc)) from exc
+
+
 def load_settings(path: str | os.PathLike | None = None, env: dict | None = None) -> Settings:
     if env is None:
         _load_dotenv(Path(".env"))
@@ -89,7 +98,12 @@ def load_settings(path: str | os.PathLike | None = None, env: dict | None = None
         allowed_property_types=tuple(g.get("allowed_property_types", defaults.allowed_property_types)),
         excluded_keywords=tuple(g.get("excluded_keywords", defaults.excluded_keywords)),
         require_parking=bool(g.get("require_parking", defaults.require_parking)),
+        single_tenant_only=bool(g.get("single_tenant_only", defaults.single_tenant_only)),
+        unchecked_policy=str(g.get("unchecked_policy", defaults.unchecked_policy)),
+        tenant_rules=_tenant_rules(g.get("tenant")),
     )
+    if goal.unchecked_policy not in ("warn", "skip"):
+        raise ConfigError('goal.unchecked_policy must be "warn" or "skip"')
     if goal.max_price <= 0 or goal.rooms <= 0:
         raise ConfigError("goal.max_price and goal.rooms must be positive")
 
@@ -106,6 +120,7 @@ def load_settings(path: str | os.PathLike | None = None, env: dict | None = None
         komo_enabled=bool(src.get("komo", True)),
         web_search_enabled=bool(src.get("web_search", True)),
         report_dir=rep.get("dir", "reports"),
+        details_delay_seconds=float(g.get("details_delay_seconds", 1.5)),
         anthropic_api_key=env.get("ANTHROPIC_API_KEY") or None,
         tavily_api_key=env.get("TAVILY_API_KEY") or None,
         telegram_bot_token=env.get("TELEGRAM_BOT_TOKEN") or None,

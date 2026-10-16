@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 
@@ -102,3 +103,44 @@ def search_komo(goal: SearchGoal, http: PoliteHttp) -> tuple[list[Listing], list
         warnings.append("komo: page loaded but 0 listing cards parsed — markup may have changed")
     log.info("komo: parsed %d listings", len(listings))
     return listings, warnings
+
+
+@dataclass
+class ListingDetails:
+    full_text: str
+    amenities: frozenset[str]  # keys of ticked amenities, e.g. {"shutafim", "mizug"}
+    parking_spaces: int | None  # None when the page leaves the field empty
+
+
+def parse_details(html: str) -> ListingDetails:
+    soup = BeautifulSoup(html, "html.parser")
+    text_el = soup.select_one("#teurWrap")
+    if text_el is None:
+        raise SourceError("listing page has no description (#teurWrap); markup may have changed")
+    full_text = " ".join(text_el.get_text(" ", strip=True).split())
+    amenities = set()
+    for li in soup.select("ul.modaaWNewUl li"):
+        classes = li.get("class") or []
+        if "add" in classes:  # every label is listed; only "add" ones apply
+            amenities.update(c for c in classes if c != "add")
+    parking = None
+    for el in soup.select("div.secondInfoElement"):
+        title = el.select_one(".secondInfoElementTitle")
+        if title and title.get_text(strip=True) == "חניות":
+            value = el.select_one(".secondInfoElementContent")
+            digits = re.sub(r"\D", "", value.get_text(strip=True)) if value else ""
+            parking = int(digits) if digits else None
+    return ListingDetails(full_text=full_text, amenities=frozenset(amenities), parking_spaces=parking)
+
+
+def fetch_komo_details(listing: Listing, http: PoliteHttp) -> ListingDetails:
+    """Fetch and parse one Komo listing page (allowed by robots.txt for User-agent: *)."""
+    resp = http.get(listing.url, allow_redirects=False)
+    if resp.is_redirect or resp.status_code in (301, 302, 303, 307, 308):
+        raise SourceError(f"Komo listing {listing.source_id} redirected (login, removed or block); not following")
+    if resp.status_code != 200:
+        raise SourceError(f"Komo listing {listing.source_id} returned HTTP {resp.status_code}")
+    resp.encoding = resp.encoding or "utf-8"
+    if looks_like_bot_challenge(resp.text):
+        raise SourceError("Komo returned a bot-protection page; not bypassing")
+    return parse_details(resp.text)

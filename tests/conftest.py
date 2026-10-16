@@ -86,3 +86,27 @@ class FakeSession(requests.Session):
 
 def fake_http(routes: dict) -> PoliteHttp:
     return PoliteHttp("test-agent/1.0", session=FakeSession(routes), sleep=lambda s: None)
+
+
+def details_html(text="דירה מרווחת ומוארת, קרובה לרכבת.", parking="1", shutafim_ticked=False) -> str:
+    html = (FIXTURES / "komo_details.html").read_text(encoding="utf-8")
+    return html.replace("{TEXT}", text).replace("{PARKING}", parking).replace("{SHUTAFIM}", "add" if shutafim_ticked else "")
+
+
+def details_for(texts: dict[str, str] | None = None, default="דירה מרווחת ומוארת."):
+    """Fake listing-page fetcher: maps listing.source_id -> ad text; records calls."""
+    from rental_agent.tools.komo import parse_details
+
+    def fetch(listing):
+        fetch.calls.append(listing.id)
+        return parse_details(details_html((texts or {}).get(listing.source_id, default)))
+    fetch.calls = []
+    return fetch
+
+
+class Clock:
+    def __init__(self, start):
+        self.t = start
+
+    def __call__(self):
+        return self.t

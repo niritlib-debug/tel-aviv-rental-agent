@@ -33,9 +33,30 @@ def test_entire_apartment_types(ptype, ok):
     assert GOAL.matches(make_listing(ptype=ptype)) is ok
 
 
-def test_shared_apartment_keyword_rejected():
+def test_room_in_shared_flat_rejected():
     ok, reasons = GOAL.check(make_listing(description="חדר בדירת שותפים, 3 חדרים"))
-    assert not ok and any("שותפ" in r for r in reasons)
+    assert not ok and "not for a single tenant (roommates_wanted)" in reasons
+
+
+def test_single_tenant_rules_use_full_listing_text():
+    listing = make_listing(full_description="דרוש שותף לדירה")
+    assert not GOAL.matches(listing)
+    assert GOAL.check(listing, card_only=True)[0]  # card-level check ignores the listing page
+    assert SearchGoal(single_tenant_only=False).matches(listing)
+
+
+def test_whole_flat_that_also_suits_roommates_is_accepted():
+    assert GOAL.matches(make_listing(full_description="מושלמת לשותפים או לזוגות צעירים"))
+
+
+def test_short_term_always_rejected():
+    for goal in (GOAL, SearchGoal(single_tenant_only=False)):
+        ok, reasons = goal.check(make_listing(full_description="מחיר ללילה"))
+        assert not ok and any("short-term" in r for r in reasons)
+
+
+def test_stored_tenant_fit_wins_over_reclassification():
+    assert not GOAL.matches(make_listing(tenant_fit="roommates_only"))
 
 
 def test_describe_mentions_criteria():
@@ -62,3 +83,4 @@ def test_ads_without_price_always_rejected():
 
 def test_describe_mentions_parking_and_price():
     assert "parking" in GOAL.describe() and "without a price" in GOAL.describe()
+    assert "single tenant" in GOAL.describe() and "per-night" in GOAL.describe()

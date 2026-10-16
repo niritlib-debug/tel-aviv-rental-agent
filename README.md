@@ -1,6 +1,6 @@
 # tel-aviv-rental-agent
 
-An AI agent that searches **twice a day** for **entire 3-room apartments with parking for rent in Tel Aviv‑Yafo** at **up to ₪5,200/month** (ads that don't state a price are skipped), remembers what it has seen in SQLite, tracks changes (for example, price drops), and reports new listings **with direct links**.
+An AI agent that searches **twice a day** for **entire 3-room apartments with parking for rent in Tel Aviv‑Yafo** at **up to ₪5,200/month**, that **a single tenant can rent on their own** (no roommate ads, no short-term or per-night rentals, no ads without a price), remembers what it has seen in SQLite, tracks changes (for example, price drops), and reports new listings **with direct links**.
 
 The full design is in [SPEC.md](SPEC.md).
 
@@ -8,8 +8,8 @@ The full design is in [SPEC.md](SPEC.md).
 
 | Agent component | Where it lives | What it does |
 |---|---|---|
-| **Goal** | `rental_agent/goal.py` | Criteria (Tel Aviv only, exactly 3 rooms, price stated and ≤ ₪5,200, entire apartment, parking space). The code checks every listing against them, and the LLM can't loosen them. |
-| **Tools** | `rental_agent/tools/` | `search_komo` (Komo listings, verified), `web_search` (Tavily, optional, unverified snippets), `memory_summary`, `submit_matches`, notifiers (console, Markdown, Telegram). |
+| **Goal** | `rental_agent/goal.py`, `tenant.py` | Criteria (Tel Aviv only, exactly 3 rooms, price stated and ≤ ₪5,200, entire apartment, parking space, single tenant, long-term). `tenant.py` reads the ad's own text and rejects roommate-wanted, roommates-only and per-night ads. The code checks every listing against them, and the LLM can't loosen them. |
+| **Tools** | `rental_agent/tools/` | `search_komo` (Komo listings, verified), `fetch_komo_details` (reads each candidate's full listing page; result cards don't show roommate wording), `web_search` (Tavily, optional, unverified snippets), `memory_summary`, `submit_matches`, notifiers (console, Markdown, Telegram). |
 | **Memory** | `rental_agent/memory.py` | SQLite: `listings` (dedup by ID and normalized URL), `listing_changes` (field-level history), `runs` (audit log). |
 | **LLM** | `rental_agent/llm.py` | Claude (`claude-opus-5-5` by default) runs a tool-use loop. It picks which tools to call, reviews candidates and submits IDs with notes. It can only submit IDs that a tool returned during the run. |
 | **Loop** | `rental_agent/agent.py`, `scheduler.py` | Inner loop: plan, call tools, observe, submit (at most 8 steps). Outer loop: APScheduler cron at 08:00 and 20:00 **Asia/Jerusalem**. |
@@ -51,7 +51,7 @@ pip install -e ".[dev]"
 cp config.example.toml config.toml && cp .env.example .env
 ```
 
-To also see flats **without** parking, set `require_parking = false` under `[goal]` in `config.toml`. Ads without a price are always skipped.
+To also see flats **without** parking, set `require_parking = false` under `[goal]` in `config.toml`. To also see roommate ads, set `single_tenant_only = false`. Ads without a price and per-night ads are always skipped.
 
 Then edit `.env` (all keys are optional):
 
@@ -95,7 +95,7 @@ python -m rental_agent list
 python -m rental_agent history
 ```
 
-Each run prints a report and saves it to `reports/YYYY-MM-DD_HHMM_runN.md`, with these sections: **New**, **Changed** (with old → new values), **Reappeared** and **Still available**. Every entry has a link.
+Each run prints a report and saves it to `reports/YYYY-MM-DD_HHMM_runN.md`, with these sections: **New**, **Changed** (with old → new values), **Reappeared** and **Still available**. Every entry has a link. Ads that say they suit a single person are tagged "suits a single tenant"; if a listing page couldn't be read, the entry says "⚠ not checked for roommates".
 
 ### Running it 24/7
 
@@ -115,7 +115,7 @@ Each run prints a report and saves it to `reports/YYYY-MM-DD_HHMM_runN.md`, with
 pytest -q
 ```
 
-The 95 tests run offline (no network, no API keys). They cover goal edge cases, the Komo parser (against a fixture that mirrors the real markup), robots.txt handling, bot-wall and login-redirect detection, retries, Tavily snippet extraction, parking detection, SQLite deduplication, change and stale tracking, the LLM loop with a fake client (including rejecting made-up IDs and falling back after an error), and scheduling around Israel's daylight saving change. GitHub Actions runs them on Python 3.11 to 3.13.
+The 137 tests run offline (no network, no API keys). They cover goal edge cases, the Komo parser (against a fixture that mirrors the real markup), robots.txt handling, bot-wall and login-redirect detection, retries, Tavily snippet extraction, parking detection, single-tenant classification (including real ad wording from Komo), SQLite deduplication, change and stale tracking, the LLM loop with a fake client (including rejecting made-up IDs and falling back after an error), and scheduling around Israel's daylight saving change. GitHub Actions runs them on Python 3.11 to 3.13.
 
 ## Project layout
 
@@ -138,6 +138,7 @@ SPEC.md          Requirements and design
 
 - Komo shows only its first results page to anonymous users, so the first run may miss older listings. Running twice a day with memory picks up new ones.
 - Yad2 and Madlan have no public API, and their bot protection is respected, so they appear only through optional web search, without verified prices.
+- Roommate detection reads the wording of the ad. Unusual phrasing can slip through, so read the ad before contacting the landlord.
 - The agent does not contact landlords.
 
 ## License

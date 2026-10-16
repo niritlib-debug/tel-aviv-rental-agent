@@ -6,7 +6,7 @@ Status: v0.3 · Last updated 2026-10-16
 |---|---|---|
 | v0.1 | Initial agent | ✅ |
 | v0.2 | Parking required; only ads that state a price | ✅ |
-| v0.3 | Single tenant only (no roommates); long‑term rentals only; listing‑page check (F2b–F2d) | ⏳ spec only |
+| v0.3 | Single tenant only (no roommates); long‑term rentals only; listing‑page check (F2b–F2d) | ✅ |
 
 ## 1. Purpose
 
@@ -299,7 +299,7 @@ python -m rental_agent next-runs         # show next scheduled times
 - `test_web_search.py` — snippet extraction and Tavily request shape (mocked session).
 - `test_memory.py` — new / unchanged / changed / reappeared / stale, dedup by URL, change rows, v2 → v3 migration, `tenant_fit` change recorded.
 - `test_agent.py` — deterministic run end‑to‑end with fake tools; LLM run with a fake client (including an invented ID that must be rejected and an API error that must fall back).
-- `test_scheduler.py` — trigger fires at 08:00 and 20:00 Asia/Jerusalem across a DST boundary.
+- `test_scheduler_config.py` — trigger fires at 08:00 and 20:00 Asia/Jerusalem across a DST boundary.
 
 CI: GitHub Actions runs the suite on Python 3.11–3.13.
 

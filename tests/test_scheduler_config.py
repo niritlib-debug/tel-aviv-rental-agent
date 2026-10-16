@@ -57,3 +57,25 @@ def test_parking_can_be_disabled(tmp_path):
     cfg = tmp_path / "c.toml"
     cfg.write_text("[goal]\nrequire_parking = false\n", encoding="utf-8")
     assert load_settings(cfg, env={}).goal.require_parking is False
+
+
+def test_tenant_config(tmp_path):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text('[goal]\nsingle_tenant_only = false\nunchecked_policy = "skip"\n'
+                   '[goal.tenant]\nsingle_ok = ["לסטודנט"]\n', encoding="utf-8")
+    g = load_settings(cfg, env={}).goal
+    assert g.single_tenant_only is False and g.unchecked_policy == "skip"
+    assert g.tenant_rules.single_ok == ("לסטודנט",) and "דרוש שותף" in g.tenant_rules.roommates_wanted
+
+
+def test_defaults_are_single_tenant(tmp_path):
+    g = load_settings(tmp_path / "none.toml", env={}).goal
+    assert g.single_tenant_only is True and g.unchecked_policy == "warn"
+
+
+@pytest.mark.parametrize("body", ['[goal]\nunchecked_policy = "maybe"\n', '[goal.tenant]\nsingel_ok = ["x"]\n'])
+def test_invalid_tenant_config(tmp_path, body):
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(body, encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_settings(cfg, env={})

@@ -3,7 +3,13 @@ from types import SimpleNamespace
 from rental_agent.agent import Agent
 from rental_agent.tools.http import SourceError
 from rental_agent.tools.notify import MarkdownReportNotifier
-from tests.conftest import at, make_listing
+from tests.conftest import Clock, at, details_for, make_listing
+
+
+def make_agent(settings, memory, **kw):
+    kw.setdefault("details_fetcher", details_for())  # never hit the network in tests
+    kw.setdefault("sleep", lambda s: None)
+    return Agent(settings, memory, **kw)
 
 
 class ListNotifier:
@@ -29,13 +35,14 @@ BAD = make_listing("3", price=6000)
 
 def test_deterministic_run_new_then_changed(settings, memory, tmp_path):
     notifier = ListNotifier()
-    times = iter([at(2026, 10, 1), at(2026, 10, 1), at(2026, 10, 1, 20), at(2026, 10, 1, 20)])
-    agent = Agent(settings, memory, sources={"search_komo": komo_source(GOOD, BAD)},
-                  notifiers=[notifier, MarkdownReportNotifier(tmp_path / "r")], now=lambda: next(times))
+    clock = Clock(at(2026, 10, 1))
+    agent = make_agent(settings, memory, sources={"search_komo": komo_source(GOOD, BAD)},
+                       notifiers=[notifier, MarkdownReportNotifier(tmp_path / "r")], now=clock)
     r1 = agent.run_once()
     assert r1.status == "ok" and [l.id for l in r1.new] == ["komo:1"]
     assert "https://www.komo.co.il/code/nadlan/details/?modaaNum=1" in r1.to_markdown()
 
+    clock.t = at(2026, 10, 1, 20)
     agent.sources = {"search_komo": komo_source(make_listing("1", price=4500), GOOD2)}
     r2 = agent.run_once()
     assert [l.id for l in r2.new] == ["komo:2"]
@@ -45,7 +52,7 @@ def test_deterministic_run_new_then_changed(settings, memory, tmp_path):
 
 
 def test_partial_when_one_source_fails(settings, memory):
-    agent = Agent(settings, memory, sources={"search_komo": komo_source(GOOD), "web_search": failing_source},
+    agent = make_agent(settings, memory, sources={"search_komo": komo_source(GOOD), "web_search": failing_source},
                   notifiers=[])
     report = agent.run_once()
     assert report.status == "partial" and len(report.new) == 1
@@ -53,7 +60,7 @@ def test_partial_when_one_source_fails(settings, memory):
 
 
 def test_failed_when_all_sources_fail(settings, memory):
-    report = Agent(settings, memory, sources={"search_komo": failing_source}, notifiers=[]).run_once()
+    report = make_agent(settings, memory, sources={"search_komo": failing_source}, notifiers=[]).run_once()
     assert report.status == "failed"
     assert memory.recent_runs(1)[0]["status"] == "failed"
 
@@ -62,12 +69,12 @@ def test_notifier_error_does_not_crash(settings, memory):
     class Boom:
         def send(self, report):
             raise RuntimeError("telegram down")
-    report = Agent(settings, memory, sources={"search_komo": komo_source(GOOD)}, notifiers=[Boom()]).run_once()
+    report = make_agent(settings, memory, sources={"search_komo": komo_source(GOOD)}, notifiers=[Boom()]).run_once()
     assert report.status == "ok" and any("telegram down" in e for e in report.errors)
 
 
 def test_dry_run_does_not_write(settings, memory):
-    report = Agent(settings, memory, sources={"search_komo": komo_source(GOOD)}, notifiers=[]).run_once(dry_run=True)
+    report = make_agent(settings, memory, sources={"search_komo": komo_source(GOOD)}, notifiers=[]).run_once(dry_run=True)
     assert len(report.new) == 1 and memory.listings() == []
 
 
@@ -111,7 +118,7 @@ def test_llm_mode_uses_tools_and_rejects_invented_ids(settings, memory):
         ]})),
         resp("end_turn", text("Found 1 match.")),
     ])
-    agent = Agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD, BAD, GOOD2)},
+    agent = make_agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD, BAD, GOOD2)},
                   notifiers=[])
     report = agent.run_once()
     assert report.mode == "llm"
@@ -129,7 +136,7 @@ def test_llm_mode_uses_tools_and_rejects_invented_ids(settings, memory):
 
 def test_llm_api_error_falls_back_to_deterministic(settings, memory):
     client = FakeClient([RuntimeError("overloaded")])
-    report = Agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD)},
+    report = make_agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD)},
                    notifiers=[]).run_once()
     assert report.mode == "llm->deterministic" and [l.id for l in report.new] == ["komo:1"]
     assert any("overloaded" in e for e in report.errors)
@@ -137,7 +144,7 @@ def test_llm_api_error_falls_back_to_deterministic(settings, memory):
 
 def test_llm_refusal_falls_back(settings, memory):
     client = FakeClient([resp("refusal")])
-    report = Agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD)},
+    report = make_agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD)},
                    notifiers=[]).run_once()
     assert report.mode == "llm->deterministic" and len(report.new) == 1
 
@@ -145,7 +152,7 @@ def test_llm_refusal_falls_back(settings, memory):
 def test_llm_step_limit(settings, memory):
     settings.llm_max_steps = 2
     client = FakeClient([resp("tool_use", tool_use(f"t{i}", "memory_summary")) for i in range(2)])
-    report = Agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD)},
+    report = make_agent(settings, memory, llm_client=client, sources={"search_komo": komo_source(GOOD)},
                    notifiers=[]).run_once()
     assert report.mode == "llm->deterministic" and len(report.new) == 1
     assert any("step limit" in e for e in report.errors)
@@ -157,7 +164,7 @@ def test_llm_tool_failure_is_reported_to_model(settings, memory):
         resp("tool_use", tool_use("t2", "submit_matches", {"matches": [{"id": "komo:1", "note": "ok"}]})),
         resp("end_turn", text("done")),
     ])
-    report = Agent(settings, memory, llm_client=client,
+    report = make_agent(settings, memory, llm_client=client,
                    sources={"search_komo": komo_source(GOOD), "web_search": failing_source}, notifiers=[]).run_once()
     first_result = client.requests[1]["messages"][-1]["content"][0]
     assert first_result["is_error"] is True

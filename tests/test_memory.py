@@ -74,6 +74,35 @@ def test_migrates_v1_database(tmp_path):
     conn.execute("PRAGMA user_version = 1")
     conn.close()
     with Memory(path) as m:
-        assert m.conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert m.conn.execute("PRAGMA user_version").fetchone()[0] == 3
         m.upsert(make_listing("1"), m.start_run(at(2026, 10, 1), "x"), at(2026, 10, 1))
         assert m.get("komo:1")["has_parking"] == 1
+
+
+def test_migrates_v2_database_keeps_rows(tmp_path):
+    import sqlite3
+    from rental_agent.memory import SCHEMA
+    path = tmp_path / "v2.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(SCHEMA)
+    conn.execute("ALTER TABLE listings ADD COLUMN has_parking INTEGER")
+    conn.execute("INSERT INTO listings(id, source, source_id, url, content_hash, first_seen, last_seen, has_parking) "
+                 "VALUES ('komo:9', 'komo', '9', 'https://www.komo.co.il/x', 'h', '2026-10-01', '2026-10-01', 1)")
+    conn.execute("PRAGMA user_version = 2")
+    conn.commit()
+    conn.close()
+    with Memory(path) as m:
+        row = m.get("komo:9")
+        assert row["has_parking"] == 1 and row["tenant_fit"] is None and row["details_checked_at"] is None
+
+
+def test_tenant_fields_stored_and_tenant_change_recorded(memory):
+    r = memory.start_run(at(2026, 10, 1), "x")
+    memory.upsert(make_listing("1", tenant_fit="unknown", full_description="דירה", site_suits_roommates=True,
+                               details_checked_at="2026-10-01T08:00:00+03:00"), r, at(2026, 10, 1))
+    row = memory.get("komo:1")
+    assert (row["tenant_fit"], row["full_description"], row["site_suits_roommates"]) == ("unknown", "דירה", 1)
+    status, diffs = memory.upsert(make_listing("1", tenant_fit="single_ok"), r, at(2026, 10, 2))
+    assert status == UNCHANGED and diffs == []  # not reported as "changed"...
+    assert [(c["field"], c["old_value"], c["new_value"]) for c in memory.changes("komo:1")] == \
+        [("tenant_fit", "unknown", "single_ok")]  # ...but recorded
